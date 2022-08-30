@@ -2,29 +2,62 @@ from math import dist, floor
 import tkinter as tk
 import tkinter.ttk as ttk
 import pandas as pd
-import numpy as np
+from tkinter import filedialog
+from PIL import Image, ImageTk, ImageOps
 
 
 class Application(tk.Frame):
     def __init__(self, master):
-        super().__init__(master)
-        self.pack()
-        self.master.geometry("800x350")
-        self.master.title("比率測定")
-        self.master.bind("<KeyPress>", self.key_event)  # 押下キー取得用
 
+        self.DF = pd.DataFrame()
         self.hex_blu = "#0000ff"
         self.hex_red = "#ff0000"
         self.hex_yel = "#ff8c00"
-
-        self.DF = pd.DataFrame()
-        self.arrow = self.new_arrow()
+        self.pw1_W = 600 #画面左側width
+        self.pw1_H = 800 #画面左側height
+        self.pw2_W = 220 #画面右側width
         self.baseId = 0
         self.baseLength = 0
-
         self.line = None
         self.leng = None
+        self.filepath = "";
+        self.dispImg = ImageTk.PhotoImage
+        self.opacity = 30 #画像の不透明度
+
+        super().__init__(master)
+        self.pack()
+        self.master.geometry(f"{self.pw1_W + self.pw2_W}x{self.pw1_H}")
+        self.master.title("比率測定")
+        self.master.bind('<Configure>', self.configure) #ウィンドウ位置同期用
+        self.master.bind("<KeyPress>", self.key_event)  #ショートカットキー取得用
+
+        self.master.upper = tk.Toplevel() #別ウィンドウ生成
+        self.master.upper.wm_attributes("-topmost", True) #常に手前に表示
+        self.master.upper.overrideredirect(True) #タイトル部分非表示
+        self.master.upper.geometry(f"{self.pw1_W}x{self.pw1_H}")
+        self.master.upper.canv2 = tk.Canvas(self.master.upper, background="#f0f0f0") 
+        self.master.upper.canv2.pack(fill=tk.BOTH, expand=True)
+        self.master.upper.wm_attributes("-transparentcolor", "#f0f0f0") #透過色設定
+
         self.create_widgets()
+        self.arrow = self.new_arrow()
+
+        # menubar作成
+        menubar = tk.Menu(self)
+        # menubar＞menu_file作成
+        menu_file = tk.Menu(menubar, tearoff=False)
+        menu_file.add_command(
+            label="画像を開く", command=self.menu_OpenFile, accelerator="Ctrl+O"
+        )
+        menu_file.add_separator()  # 仕切り線
+        menu_file.add_command(
+            label="終了", command=self.master.destroy, accelerator="Ctrl+W"
+        )
+        menu_file.bind_all("<Control-o>", self.menu_OpenFile)
+        menu_file.bind_all("<Control-w>", self.master.destroy)
+        menubar.add_cascade(label="ファイル", menu=menu_file)
+        # menubar設置
+        self.master.config(menu=menubar)
 
     # ウィンドウ描画****************************************************
     # 全体
@@ -42,11 +75,13 @@ class Application(tk.Frame):
     # 左側Column
     def draw_pw1(self, pw1):
         pw1 = tk.PanedWindow(pw1, bg="gray", orient="horizontal")
-        self.canv1 = tk.Canvas(pw1, width=480, height=300, borderwidth=10)
-        self.canv1.grid(row=0, column=2, padx=2, pady=2)
+        self.canv1 = tk.Canvas(pw1, width=self.pw1_W, height=self.pw1_H, borderwidth=0)
+        self.canv1.grid(row=0, column=2, padx=0, pady=0)
         self.canv1.bind("<Button-1>", self.dd_01click)
         self.canv1.bind("<B1-Motion>", self.dd_02drag)
         self.canv1.bind("<ButtonRelease-1>", self.dd_03drop)
+        self.canv1.bind("<Unmap>", self.unmap)
+        self.canv1.bind("<Map>", self.map)
 
         return pw1
 
@@ -107,6 +142,38 @@ class Application(tk.Frame):
 
     # ************************************************************************
 
+    # メニュー****************************************************************
+    # ファイル選択ダイアログ
+    def menu_OpenFile(self):
+        self.filepath = filedialog.askopenfilename(
+            title="ファイルを開く",
+            filetypes=[
+                ("Image file", ".png .jpg .tif"),
+                ("PNG", ".png"),
+                ("JPEG", ".jpg"),
+            ],
+            initialdir="./",
+        )
+        self.showImage()
+
+    #画像をキャンバスサイズにリサイズして表示
+    def showImage(self):
+        if not self.filepath:
+            return
+
+        pilImg = Image.open(self.filepath)
+        pilImg = ImageOps.pad(
+            pilImg, (self.pw1_W, self.pw1_H), color=None
+        )
+        pilImg.putalpha(int((self.opacity/100)*255))
+        self.dispImg = ImageTk.PhotoImage(image=pilImg)
+        self.canv1.create_image(
+            self.pw1_W / 2,
+            self.pw1_H / 2,
+            image=self.dispImg
+        )
+    # ************************************************************************
+
     # マウス･キー押下イベント*************************************************
     # 各種ショートカット
     def key_event(self, event):
@@ -117,7 +184,7 @@ class Application(tk.Frame):
         elif event.keysym == "Return":
             self.apply()
         elif event.keysym == "p":
-            self.printDF  # kesu
+            self.printDF  #(仮)
 
     # クリック
     def dd_01click(self, e):
@@ -131,10 +198,10 @@ class Application(tk.Frame):
             b = (e.x, e.y)
             intDist = floor(dist(a, b))
             # arrow再描画
-            self.canv1.coords(self.line, self.arrow["x1"], self.arrow["y1"], e.x, e.y)
+            self.master.upper.canv2.coords(self.line, self.arrow["x1"], self.arrow["y1"], e.x, e.y)
             # テキスト再描画
-            self.canv1.delete(self.leng)
-            self.leng = self.canv1.create_text(
+            self.master.upper.canv2.delete(self.leng)
+            self.leng = self.master.upper.canv2.create_text(
                 (self.arrow["x1"] + e.x) / 2 + 10,
                 (self.arrow["y1"] + e.y) / 2,
                 text="(" + str(self.getRatio_onTemp(intDist)) + ")",
@@ -144,7 +211,7 @@ class Application(tk.Frame):
             )
             self.arrow["length"] = intDist
         else:
-            self.line = self.canv1.create_line(
+            self.line = self.master.upper.canv2.create_line(
                 self.arrow["x1"],
                 self.arrow["y1"],
                 e.x,
@@ -192,9 +259,9 @@ class Application(tk.Frame):
     # Resetボタン用イベント
     def reset(self):
         if self.line:
-            self.canv1.delete(self.line)
+            self.master.upper.canv2.delete(self.line)
             self.line = None
-            self.canv1.delete(self.leng)
+            self.master.upper.canv2.delete(self.leng)
             self.leng = None
             self.arrow["length"] = 0
         else:
@@ -246,7 +313,6 @@ class Application(tk.Frame):
         self.DF["color"] = self.hex_blu
 
         self.DF.at[id, "baseflg"] = int(1)
-        self.printDF  # kesu
         self.baseLength = self.DF.at[id, "length"]
         self.DF["ratio"] = [
             format(item / self.baseLength, ".2f") for item in self.DF["length"]
@@ -275,9 +341,9 @@ class Application(tk.Frame):
 
     # DFに登録されたarrowを全て描画
     def drawArrows_byDF(self):
-        self.canv1.delete("all")
+        self.master.upper.canv2.delete("all")
         for row in self.DF.itertuples():
-            self.canv1.create_line(
+            self.master.upper.canv2.create_line(
                 row.x1,
                 row.y1,
                 row.x2,
@@ -286,7 +352,7 @@ class Application(tk.Frame):
                 fill=row.color,
                 arrow="both",
             )
-            self.canv1.create_text(
+            self.master.upper.canv2.create_text(
                 (row.x1 + row.x2) / 2 + 10,
                 (row.y1 + row.y2) / 2,
                 text="(" + str(row.ratio) + ")",
@@ -311,19 +377,29 @@ class Application(tk.Frame):
         }
         return dic_arrow
 
+    def unmap(self, event): 
+        self.master.upper.withdraw() #ウィンドウを非表示にする
+
+    def map(self, event):
+        self.lift() #ウィンドウを上に移動
+        self.master.upper.wm_deiconify()
+        self.master.upper.attributes("-topmost", True) #一番上になるよう再設定
+
+    def configure(self, event): #透明キャンバスウィンドウサイズの調節
+        x, y = self.canv1.winfo_rootx(), self.canv1.winfo_rooty()
+        self.master.upper.geometry(f"{self.pw1_W}x{self.pw1_H-5}+{x}+{y}")
+
     # デバッグ用
     def printDF(self):
         print("=========================")
         print(self.DF)
-
     # ************************************************************************
-
 
 def main():
     root = tk.Tk()
+    root.resizable(0,0)
     app = Application(master=root)
     app.mainloop()
-
 
 if __name__ == "__main__":
     main()
